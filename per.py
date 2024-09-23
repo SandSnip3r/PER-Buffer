@@ -8,6 +8,12 @@ import typing
 
 import io
 
+def setSeed(seed):
+  # For Python's random module
+  random.seed(seed)
+  # For NumPy's random module
+  np.random.seed(seed)
+
 def printToString(*args, **kwargs):
   output = io.StringIO()
   print(*args, file=output, **kwargs)
@@ -25,7 +31,7 @@ class TypedTransition(typing.NamedTuple):
 class PrioritizedExperienceReplay():
   '''This is the rank-based variant of Prioritized Experience Replay.'''
 
-  def __init__(self, capacity: int, sampleSize: int, alpha: float = 1.0):
+  def __init__(self, capacity: int, sampleSize: int, alpha: float=1.0):
     self.memory = deque([], maxlen=capacity)
     self.sampleSize = sampleSize
     self.alpha = alpha
@@ -59,24 +65,23 @@ class PrioritizedExperienceReplay():
       self.recomputeBounds()
       self.currentSize = len(self.memory)
 
-  def sample(self) -> list[TypedTransition]:
+  def sample(self) -> list[(int, TypedTransition)]:
     if len(self.memory) < self.sampleSize:
       raise ValueError(f'Trying to sample {self.sampleSize}, but only have {len(self.memory)} item(s)')
-
-    print(f'Sampling {self.sampleSize} from {len(self.memory)}')
     
     errorsAndIndices = sorted([(transition.tdError, index) for index, transition in enumerate(self.memory)], reverse=True)
-    print('Errors and indices:', *errorsAndIndices, sep='\n  ')
     
     lastEnd = 0
-    result : list[TypedTransition] = []
+    result : list[(int, TypedTransition)] = []
     for end in self.exclusiveBucketEnds:
-      print(f'Sampling something in [{lastEnd},{end})')
       indexInBucket = np.random.randint(lastEnd, end)
       _, index = errorsAndIndices[indexInBucket]
-      result.append(self.memory[index])
+      result.append((index, self.memory[index]))
       lastEnd = end
     return result
+  
+  def updateErrors(self, index:int, transition:TypedTransition):
+    self.memory[index] = transition
 
   def __len__(self):
     return len(self.memory)
@@ -90,23 +95,24 @@ class PrioritizedExperienceReplay():
 # Update priorities of recently sampled N items
   
 if __name__ == "__main__":
+  kSeed = 0x533D
+  setSeed(kSeed)
   kBufferSize = 32
   kSampleSize = 4
+  kAlpha = 0.0
 
-  replayMemory = PrioritizedExperienceReplay(kBufferSize, kSampleSize)
-
-  # Push enough for a sample, but not enough
+  replayMemory = PrioritizedExperienceReplay(kBufferSize, kSampleSize, kAlpha)
 
   # Push some random data
   for i in range(kBufferSize):
     replayMemory.push(TypedTransition(np.random.randint(50), np.random.randint(50), np.random.randint(50), np.random.rand(), np.random.rand()))
   
-  print(replayMemory)
-  
   for i in range(3):
     res = replayMemory.sample()
     print('Sample:',*res, sep='\n  ')
     print()
+    for x in res:
+      replayMemory.updateErrors(x[0], x[1]._replace(tdError = np.random.rand()))
 
   # alpha = 0.5
   # sum = 0.0
